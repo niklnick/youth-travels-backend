@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { compare, genSalt, hash } from 'bcrypt';
@@ -12,6 +13,7 @@ import { AuthUserDto } from './dto/auth-user.dto';
 @Injectable()
 export class AuthService {
     constructor(
+        private readonly configService: ConfigService,
         private readonly jwtService: JwtService,
         @InjectRepository(User) private readonly usersRepository: Repository<User>
     ) { }
@@ -38,6 +40,25 @@ export class AuthService {
         if (!await compare(loginUserDto.password, user.password)) throw new UnauthorizedException();
 
         return await this.generateAuthUserDto(user);
+    }
+
+    async refresh(refreshToken: string): Promise<AuthUserDto> {
+        try {
+            const payload = await this.jwtService.verifyAsync(
+                refreshToken,
+                { secret: this.configService.get<string>('JWT_SECRET') }
+            );
+
+            const user: User | null = await this.usersRepository.findOne({
+                where: { id: payload.sub }
+            });
+
+            if (!user) throw new NotFoundException();
+
+            return await this.generateAuthUserDto(user);
+        } catch {
+            throw new UnauthorizedException();
+        }
     }
 
     private async generateAuthUserDto(user: User): Promise<AuthUserDto> {
